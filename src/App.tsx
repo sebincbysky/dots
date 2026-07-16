@@ -744,10 +744,66 @@ const emojiPalette = [
     drawCanvas();
   }, [activeImage?.rotation, activeImage?.scale, activeImage?.targetSize, activeImage?.filter, activeImage?.effect, activeImage?.pixelSize, activeImage?.emojiDensity, drawCanvas]);
 
+  const getManifestData = () => {
+    return images.map(img => {
+      const isVideo = !!img.isVideo;
+      const cleanName = img.name.replace(/\.[^/.]+$/, "");
+      const finalName = isVideo 
+        ? img.name 
+        : `${cleanName}_${img.targetSize}px.png`;
+
+      return {
+        id: img.id,
+        filename: finalName,
+        original_name: img.name,
+        type: isVideo ? 'video' : 'image',
+        target_size: img.targetSize,
+        rotation: img.rotation,
+        scale: parseFloat(img.scale.toFixed(2)),
+        filter: img.filter || 'None',
+        effect: img.effect || 'None',
+        pixel_size: img.effect === 'Pixelate' ? (img.pixelSize || 16) : null,
+        emoji_density: img.effect === 'EmojiMosaic' ? (img.emojiDensity || 12) : null,
+        ai_cleaned: !!img.watermarkRemoved
+      };
+    });
+  };
+
+  const downloadManifestJSON = () => {
+    const data = getManifestData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    saveAs(blob, 'dataset_manifest.json');
+  };
+
+  const downloadManifestCSV = () => {
+    const data = getManifestData();
+    if (data.length === 0) return;
+    
+    const headers = ['id', 'filename', 'original_name', 'type', 'target_size', 'rotation', 'scale', 'filter', 'effect', 'pixel_size', 'emoji_density', 'ai_cleaned'];
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => {
+        return headers.map(header => {
+          const val = (row as any)[header];
+          if (val === null || val === undefined) return '';
+          const str = String(val);
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        }).join(',');
+      })
+    ];
+    
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    saveAs(blob, 'dataset_manifest.csv');
+  };
+
   const exportZip = async () => {
     if (images.length === 0) return;
     const zip = new JSZip();
 
+    // 1. Export actual processed media assets
     for (const imgState of images) {
       if (imgState.isVideo) {
         try {
@@ -756,7 +812,6 @@ const emojiPalette = [
           zip.file(imgState.name, blob);
         } catch (err) {
           console.error("Error adding video to zip:", err);
-          // Fallback: add text file pointing to the URL
           zip.file(`${imgState.name}_download_link.txt`, `Source video URL: ${imgState.src}`);
         }
         continue;
@@ -774,11 +829,9 @@ const emojiPalette = [
       let targetHeight = imgState.targetSize;
 
       if (imgAspect > 1) {
-        // Landscape
         targetWidth = imgState.targetSize;
         targetHeight = Math.round(imgState.targetSize / imgAspect);
       } else {
-        // Portrait
         targetHeight = imgState.targetSize;
         targetWidth = Math.round(imgState.targetSize * imgAspect);
       }
@@ -788,11 +841,9 @@ const emojiPalette = [
       const ctx = offscreenCanvas.getContext('2d');
       if (!ctx) continue;
       
-      // Configure high quality rendering
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       
-      // Set canvas filter
       let filterStr = 'none';
       if (imgState.filter) {
         switch (imgState.filter) {
@@ -837,7 +888,6 @@ const emojiPalette = [
       ctx.drawImage(imgElement, -imgElement.width / 2, -imgElement.height / 2);
       ctx.restore();
 
-      // Post-processing effects (Pixelate, EmojiMosaic, EdgeDetection)
       if (imgState.effect && imgState.effect !== 'None') {
         ctx.filter = 'none';
         if (imgState.effect === 'Pixelate') {
@@ -928,6 +978,75 @@ const emojiPalette = [
       
       zip.file(`${imgState.name}_${targetWidth}x${targetHeight}.png`, base64Data, { base64: true });
     }
+
+    // 2. Generate and Add Manifests (JSON, CSV, README)
+    const manifestData = getManifestData();
+    
+    // JSON Manifest
+    zip.file('dataset_manifest.json', JSON.stringify(manifestData, null, 2));
+
+    // CSV Manifest
+    const headers = ['id', 'filename', 'original_name', 'type', 'target_size', 'rotation', 'scale', 'filter', 'effect', 'pixel_size', 'emoji_density', 'ai_cleaned'];
+    const csvContent = [
+      headers.join(','),
+      ...manifestData.map(row => {
+        return headers.map(header => {
+          const val = (row as any)[header];
+          if (val === null || val === undefined) return '';
+          const str = String(val);
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        }).join(',');
+      })
+    ].join('\n');
+    zip.file('dataset_manifest.csv', csvContent);
+
+    // README dataset documentation
+    const resolutionCounts = manifestData.reduce((acc: any, img) => {
+      acc[img.target_size] = (acc[img.target_size] || 0) + 1;
+      return acc;
+    }, {});
+    const filterCounts = manifestData.reduce((acc: any, img) => {
+      if (img.filter && img.filter !== 'None') {
+        acc[img.filter] = (acc[img.filter] || 0) + 1;
+      }
+      return acc;
+    }, {});
+    const effectCounts = manifestData.reduce((acc: any, img) => {
+      if (img.effect && img.effect !== 'None') {
+        acc[img.effect] = (acc[img.effect] || 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    const readmeText = `# Machine Learning Training Dataset Export
+
+Compiled and optimized with **Circle Dataset Processing Station**.
+
+## Dataset Metrics
+- **Total Registered Samples**: ${images.length}
+- **Image Assets**: ${manifestData.filter(d => d.type === 'image').length}
+- **Video Assets**: ${manifestData.filter(d => d.type === 'video').length}
+
+## Technical Distribution
+
+### Target Dimensions Map
+${Object.entries(resolutionCounts).map(([size, count]) => `- **${size}px × ${size}px**: ${count} assets`).join('\n') || '- None'}
+
+### Applied Color Presets
+${Object.entries(filterCounts).map(([filter, count]) => `- **${filter}**: ${count} files`).join('\n') || '- Standard / raw color profiles'}
+
+### Custom Pixel / Shader Effects
+${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} files`).join('\n') || '- Standard visual presentations'}
+
+## Bundle Assets Description
+1. **dataset_manifest.json**: Exquisite structured JSON descriptor.
+2. **dataset_manifest.csv**: Flattened dataset index ready for instant Pandas / PyTorch loader imports.
+3. **[Asset Folders]**: PNG resolution-scaled output assets named as \`{originalName}_{targetSize}x{targetSize}.png\`.
+`;
+    zip.file('README.md', readmeText);
 
     const content = await zip.generateAsync({ type: 'blob' });
     saveAs(content, `dataset_export.zip`);
@@ -1786,9 +1905,9 @@ const emojiPalette = [
           ) : (
              /* Active Workspace layout: Left Sidebar, Center Preview, Right Controls */
              <div className="flex-1 flex w-full h-full min-h-0">
-              {/* Left Sidebar Gallery (Vinyl Player Style - Glossy 3D Circles) */}
-              <div className="shrink-0 w-28 bg-white border-r border-neoink/10 py-6 flex flex-col gap-6 overflow-y-auto no-scrollbar items-center relative z-10 h-full shadow-sm">
-                <label className="shrink-0 w-16 h-16 border border-dashed border-neoink/20 hover:border-neoaccent rounded-full flex flex-col items-center justify-center text-neoink/60 hover:text-neoaccent hover:bg-neoaccent/5 transition-all cursor-pointer" title="Add More">
+              {/* Left Sidebar Gallery */}
+              <div className="shrink-0 w-28 bg-[#F8F7F4] border-r border-neoink/10 py-6 flex flex-col gap-6 overflow-y-auto no-scrollbar items-center relative z-10 h-full shadow-sm">
+                <label className="shrink-0 w-16 h-16 border border-dashed border-neoink/20 hover:border-neoaccent hover:bg-neoaccent/5 rounded-full flex flex-col items-center justify-center text-neoink/60 hover:text-neoaccent transition-all cursor-pointer" title="Add More">
                   <Plus className="w-6 h-6 stroke-[3]" />
                   <input type="file" className="hidden" accept="image/*,video/*" multiple onChange={handleFileChange} />
                 </label>
@@ -1809,7 +1928,7 @@ const emojiPalette = [
                         return next;
                       });
                     }}
-                    className="shrink-0 w-16 h-16 border border-transparent bg-neoaccent hover:bg-neoaccent/90 rounded-full flex flex-col items-center justify-center text-white transition-all cursor-pointer shadow-md hover:scale-[1.02] animate-pulse"
+                    className="shrink-0 w-16 h-16 bg-neoaccent hover:bg-neoaccent/90 rounded-full flex flex-col items-center justify-center text-white transition-all cursor-pointer shadow-md hover:scale-[1.02] animate-pulse"
                     title="Filter/Fix Corrupted or Broken Files"
                   >
                     <Trash2 className="w-5 h-5 mb-0.5 stroke-[2.5]" />
@@ -1826,7 +1945,7 @@ const emojiPalette = [
                           ? 'border border-neoaccent bg-neoaccent/5 flex flex-col items-center justify-center'
                           : activeId === img.id 
                             ? 'border-2 border-neoaccent scale-105 shadow-md' 
-                            : 'border border-neoink/10 hover:border-neoaccent hover:scale-105 shadow-sm'
+                            : 'border border-neoink/10 hover:border-neoaccent hover:scale-105 shadow-sm bg-white'
                       }`}
                     >
                       {img.isBroken ? (
@@ -1856,10 +1975,10 @@ const emojiPalette = [
                       )}
                     </div>
                     
-                    {/* Settings Hover Preview (Appears to the right) */}
+                    {/* Settings Hover Preview */}
                     {!img.isBroken && (
-                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 bg-neosurface p-4 rounded-none text-left opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border-3 border-neoink shadow-[4px_4px_0_#18181A] flex gap-4 items-center">
-                        <div className="w-16 h-16 rounded-full border-2 border-neoink overflow-hidden bg-neoyellow/10 flex items-center justify-center shrink-0">
+                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 bg-white p-4 rounded-xl text-left opacity-0 group-hover:opacity-100 transition-all pointer-events-none whitespace-nowrap z-50 border border-neoink/10 shadow-lg flex gap-4 items-center">
+                        <div className="w-16 h-16 rounded-full border border-neoink/10 overflow-hidden bg-[#F8F7F4] flex items-center justify-center shrink-0">
                           {img.isVideo ? (
                             <div className="w-full h-full relative bg-black flex items-center justify-center">
                               <video 
@@ -1882,11 +2001,11 @@ const emojiPalette = [
                           )}
                         </div>
                         <div>
-                          <p className="text-xs text-neoink font-extrabold uppercase tracking-wider mb-1">{img.name}</p>
-                          <p className="text-[10px] text-neoink/60 font-mono uppercase tracking-widest font-bold">Target: {img.targetSize}px</p>
-                          <p className="text-[10px] text-neoink/50 font-mono uppercase tracking-widest font-bold">Rot: {img.rotation}° • Scale: {img.scale.toFixed(1)}x</p>
+                          <p className="text-xs text-neoink font-bold uppercase tracking-wider mb-0.5">{img.name}</p>
+                          <p className="text-[10px] text-neoink/50 font-mono uppercase tracking-widest font-bold">Target: {img.targetSize}px</p>
+                          <p className="text-[10px] text-neoink/40 font-mono uppercase tracking-widest font-bold">Rot: {img.rotation}° • Scale: {img.scale.toFixed(1)}x</p>
                           {img.watermarkRemoved && (
-                            <span className="text-[9px] text-neoaccent font-bold font-mono uppercase tracking-widest flex items-center gap-1 mt-1">
+                            <span className="text-[9px] text-[#2EC4B6] font-bold font-mono uppercase tracking-widest flex items-center gap-1 mt-1">
                               <Sparkles className="w-2.5 h-2.5 stroke-[2.5]" /> AI Cleaned
                             </span>
                           )}
@@ -1896,16 +2015,16 @@ const emojiPalette = [
                     
                     <button 
                       onClick={(e) => removeImage(img.id, e)}
-                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center bg-neosurface hover:bg-neoaccent hover:text-white rounded-full text-neoink opacity-0 group-hover:opacity-100 transition-all z-10 cursor-pointer shadow-[2px_2px_0_#18181A] border-2 border-neoink"
+                      className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center bg-white hover:bg-neoaccent hover:text-white rounded-full text-neoink border border-neoink/10 shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10 cursor-pointer"
                     >
-                      <X className="w-4 h-4 stroke-[2.5]" />
+                      <X className="w-3.5 h-3.5 stroke-[2.5]" />
                     </button>
                   </div>
                 ))}
               </div>
 
               {/* Center Workspace Area */}
-              <div className="flex-1 flex flex-col h-full bg-neoyellow/5 relative z-0 border-l-4 border-neoink">
+              <div className="flex-1 flex flex-col h-full bg-[#FAF9F5] relative z-0 border-l border-neoink/10">
                 <div 
                   className="flex-1 p-8 flex items-center justify-center overflow-hidden relative min-h-0"
                   onDragOver={onDragOver}
@@ -1919,7 +2038,7 @@ const emojiPalette = [
                         autoPlay
                         loop
                         muted
-                        className="max-w-full max-h-full object-contain bg-black shadow-[8px_8px_0_#18181A] rounded-none border-4 border-neoink transition-all"
+                        className="max-w-full max-h-full object-contain bg-black shadow-lg rounded-2xl border border-neoink/10 transition-all"
                         style={{
                           transform: `rotate(${activeImage.rotation}deg) scale(${activeImage.scale})`,
                           filter: 
@@ -1938,68 +2057,63 @@ const emojiPalette = [
                         ref={canvasRef} 
                         onMouseMove={handleCanvasMouseMove}
                         onMouseLeave={handleCanvasMouseLeave}
-                        className="max-w-full max-h-full object-contain bg-white shadow-[8px_8px_0_#18181A] rounded-none border-4 border-neoink transition-all cursor-crosshair"
+                        className="max-w-full max-h-full object-contain bg-white shadow-lg rounded-2xl border border-neoink/10 transition-all cursor-crosshair"
                       />
                     )}
                     
                     {/* Pixel Lead Interactive Overlay */}
                     {enablePixelLead && pixelLead && (
                       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                        {/* Horizontal Line */}
                         <div 
-                          className="absolute left-0 right-0 h-[2px] bg-neoaccent/60 border-t border-white/20"
+                          className="absolute left-0 right-0 h-[1.5px] bg-neoaccent/40 border-t border-white/25"
                           style={{ top: `${pixelLead.visualY}px` }}
                         />
-                        {/* Vertical Line */}
                         <div 
-                          className="absolute top-0 bottom-0 w-[2px] bg-neoaccent/60 border-l border-white/20"
+                          className="absolute top-0 bottom-0 w-[1.5px] bg-neoaccent/40 border-l border-white/25"
                           style={{ left: `${pixelLead.visualX}px` }}
                         />
+                        
                         {/* Precision Info Card */}
                         <div 
-                          className="absolute bg-neosurface text-neoink p-4 border-3 border-neoink shadow-[4px_4px_0_#18181A] flex flex-col gap-1.5 text-[10px] font-mono rounded-none z-50"
+                          className="absolute bg-white text-neoink p-3.5 border border-neoink/10 shadow-lg flex flex-col gap-1.5 text-[10px] font-mono rounded-xl z-50 min-w-[160px]"
                           style={{ 
-                            left: `${Math.min(pixelLead.visualX + 16, (canvasRef.current?.clientWidth || 500) - 150)}px`, 
-                            top: `${Math.min(pixelLead.visualY + 16, (canvasRef.current?.clientHeight || 500) - 90)}px` 
+                            left: `${Math.min(pixelLead.visualX + 16, (canvasRef.current?.clientWidth || 500) - 180)}px`, 
+                            top: `${Math.min(pixelLead.visualY + 16, (canvasRef.current?.clientHeight || 500) - 120)}px` 
                           }}
                         >
-                          <div className="flex justify-between gap-5 border-b-2 border-neoink pb-1 mb-1 font-bold">
-                            <span>PIXEL LEAD</span>
-                            <span className="text-neoaccent">ACTIVE</span>
+                          <div className="flex justify-between gap-5 border-b border-neoink/10 pb-1 mb-1 font-bold">
+                            <span className="tracking-wider text-neoink/50">PIXEL LEAD</span>
+                            <span className="text-neoaccent">RGB</span>
                           </div>
-                          <div className="flex justify-between gap-5 font-bold">
-                            <span className="text-neoink/60">COORD X:</span>
-                            <span>{pixelLead.x} px</span>
+                          <div className="flex justify-between gap-5 font-bold text-[9px]">
+                            <span className="text-neoink/40">X / Y:</span>
+                            <span>{pixelLead.x}, {pixelLead.y} px</span>
                           </div>
-                          <div className="flex justify-between gap-5 font-bold">
-                            <span className="text-neoink/60">COORD Y:</span>
-                            <span>{pixelLead.y} px</span>
+                          <div className="flex justify-between gap-5 font-bold text-[9px]">
+                            <span className="text-neoink/40">COLOR:</span>
+                            <span>({pixelLead.r},{pixelLead.g},{pixelLead.b})</span>
                           </div>
-                          <div className="flex justify-between gap-5 font-bold">
-                            <span className="text-neoink/60">COLOR RGB:</span>
-                            <span>({pixelLead.r}, {pixelLead.g}, {pixelLead.b})</span>
+                          <div className="flex justify-between gap-5 font-bold text-[9px]">
+                            <span className="text-neoink/40">HEX:</span>
+                            <span className="text-neoaccent font-extrabold">{pixelLead.hex}</span>
                           </div>
-                          <div className="flex justify-between gap-5 font-bold">
-                            <span className="text-neoink/60">COLOR HEX:</span>
-                            <span className="text-neoaccent">{pixelLead.hex}</span>
-                          </div>
-                          <div className="mt-1.5 flex items-center gap-1.5 border-t-2 border-neoink/10 pt-1.5 font-bold">
-                            <div className="w-4 h-4 rounded-none border-2 border-neoink shadow-sm" style={{ backgroundColor: pixelLead.hex }} />
-                            <span className="text-[9px] text-neoink/60 uppercase tracking-widest">Inspected Color</span>
+                          <div className="mt-1.5 flex items-center gap-1.5 border-t border-neoink/5 pt-1.5 font-bold">
+                            <div className="w-4.5 h-4.5 rounded-md border border-neoink/10 shadow-sm" style={{ backgroundColor: pixelLead.hex }} />
+                            <span className="text-[8px] text-neoink/40 uppercase tracking-wider">Swatched</span>
                           </div>
                         </div>
                       </div>
                     )}
                   </div>
  
-                  <div className="absolute bottom-4 right-4 text-[9px] font-mono uppercase tracking-widest text-neoink/80 bg-neosurface px-3 py-1.5 border-2 border-neoink shadow-[2px_2px_0_#18181A] flex gap-4 font-bold rounded-none">
-                    <span>Preview Size: {activeImage?.targetSize}px</span>
+                  <div className="absolute bottom-4 right-4 text-[9px] font-mono uppercase tracking-widest text-neoink/80 bg-white px-3.5 py-2 border border-neoink/10 shadow-md flex gap-4 font-bold rounded-lg">
+                    <span>Target Size: {activeImage?.targetSize}px</span>
                     {imgRef.current ? (
-                      <span className="border-l-2 border-neoink/20 pl-4">
-                        Original: {imgRef.current.width}x{imgRef.current.height}px
+                      <span className="border-l border-neoink/10 pl-4 text-neoink/50">
+                        Src: {imgRef.current.width}×{imgRef.current.height}px
                       </span>
                     ) : activeImage?.isVideo ? (
-                      <span className="border-l-2 border-neoink/20 pl-4">
+                      <span className="border-l border-neoink/10 pl-4 text-neoink/50">
                         Format: MP4 Video
                       </span>
                     ) : null}
@@ -2008,55 +2122,55 @@ const emojiPalette = [
               </div>
  
               {/* Right Settings Panel */}
-              <div className="shrink-0 w-[400px] h-full bg-neosurface border-l-4 border-neoink flex flex-col">
-                <div className="flex-1 overflow-y-auto p-6 space-y-8">
+              <div className="shrink-0 w-[400px] h-full bg-white border-l border-neoink/10 flex flex-col">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
                   <div>
-                    <h3 className="font-gaegu text-3xl uppercase tracking-widest text-neoink mb-6 border-b-3 border-neoink pb-3">Adjustments</h3>
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-neoink/40 mb-6 border-b border-neoink/10 pb-3 font-mono">Adjustments</h3>
                     
                     {activeImage && (
                       <div className="space-y-6">
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                           <div className="flex justify-between items-center">
                             <label className="text-xs font-bold uppercase tracking-wider text-neoink/85 font-sans">Rotation: {activeImage.rotation}°</label>
-                            <div className="flex space-x-1.5">
-                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation - 10 })} className="p-2 border-2 border-neoink bg-neosurface text-neoink hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none" title="-10°">
-                                <RotateCcw className="w-4 h-4 stroke-[2.5]" />
+                            <div className="flex gap-1">
+                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation - 10 })} className="p-2 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink border border-neoink/5 transition-all cursor-pointer rounded-lg" title="-10°">
+                                <RotateCcw className="w-3.5 h-3.5 stroke-[2.5]" />
                               </button>
-                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation - 1 })} className="px-2.5 py-1 border-2 border-neoink bg-neosurface text-neoink text-[10px] font-mono hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none font-bold" title="-1°">
+                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation - 1 })} className="px-2.5 py-1 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink text-[10px] font-mono transition-all cursor-pointer rounded-lg font-bold" title="-1°">
                                 -1°
                               </button>
-                              <button onClick={() => updateActiveImage({ rotation: 0 })} className="px-3 py-1 border-2 border-neoink bg-neosurface text-neoink text-[10px] font-mono hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none font-bold">
+                              <button onClick={() => updateActiveImage({ rotation: 0 })} className="px-3 py-1 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink text-[10px] font-mono transition-all cursor-pointer rounded-lg font-bold">
                                 0°
                               </button>
-                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation + 1 })} className="px-2.5 py-1 border-2 border-neoink bg-neosurface text-neoink text-[10px] font-mono hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none font-bold" title="+1°">
+                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation + 1 })} className="px-2.5 py-1 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink text-[10px] font-mono transition-all cursor-pointer rounded-lg font-bold" title="+1°">
                                 +1°
                               </button>
-                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation + 10 })} className="p-2 border-2 border-neoink bg-neosurface text-neoink hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none" title="+10°">
-                                <RotateCw className="w-4 h-4 stroke-[2.5]" />
+                              <button onClick={() => updateActiveImage({ rotation: activeImage.rotation + 10 })} className="p-2 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink border border-neoink/5 transition-all cursor-pointer rounded-lg" title="+10°">
+                                <RotateCw className="w-3.5 h-3.5 stroke-[2.5]" />
                               </button>
                             </div>
                           </div>
                         </div>
  
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                           <div className="flex justify-between items-center">
                             <label className="text-xs font-bold uppercase tracking-wider text-neoink/85 font-sans">Scale: {activeImage.scale.toFixed(2)}x</label>
-                            <div className="flex space-x-1.5">
-                              <button onClick={() => updateActiveImage({ scale: Math.max(0.1, activeImage.scale - 0.1) })} className="p-2 border-2 border-neoink bg-neosurface text-neoink hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none">
-                                <Minus className="w-4 h-4 stroke-[2.5]" />
+                            <div className="flex gap-1">
+                              <button onClick={() => updateActiveImage({ scale: Math.max(0.1, activeImage.scale - 0.1) })} className="p-2 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink border border-neoink/5 transition-all cursor-pointer rounded-lg">
+                                <Minus className="w-3.5 h-3.5 stroke-[2.5]" />
                               </button>
-                              <button onClick={() => updateActiveImage({ scale: 1 })} className="px-3 py-1 border-2 border-neoink bg-neosurface text-neoink text-[10px] font-mono hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all flex items-center space-x-1 cursor-pointer rounded-none font-bold">
-                                <RefreshCw className="w-3 h-3 text-neoink/50 stroke-[2.5]" />
+                              <button onClick={() => updateActiveImage({ scale: 1 })} className="px-3 py-1 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer rounded-lg font-bold">
+                                <RefreshCw className="w-3 h-3 text-neoink/40 stroke-[2.5]" />
                                 <span>1x</span>
                               </button>
-                              <button onClick={() => updateActiveImage({ scale: activeImage.scale + 0.1 })} className="p-2 border-2 border-neoink bg-neosurface text-neoink hover:bg-neoyellow/15 shadow-[2px_2px_0_#18181A] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#18181A] transition-all cursor-pointer rounded-none">
-                                <Plus className="w-4 h-4 stroke-[3]" />
+                              <button onClick={() => updateActiveImage({ scale: activeImage.scale + 0.1 })} className="p-2 bg-[#F8F7F4] hover:bg-neoaccent hover:text-white text-neoink border border-neoink/5 transition-all cursor-pointer rounded-lg">
+                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
                               </button>
                             </div>
                           </div>
                         </div>
  
-                        <div className="space-y-4 pt-6 border-t-3 border-neoink text-left">
+                        <div className="space-y-4 pt-6 border-t border-neoink/10 text-left">
                           <div className="flex justify-between items-center mb-2">
                             <label className="text-xs font-bold uppercase tracking-wider text-neoink/85 font-sans">Target Resolution</label>
                             <label className="flex items-center space-x-2 cursor-pointer group">
@@ -2064,12 +2178,12 @@ const emojiPalette = [
                                 type="checkbox" 
                                 checked={applyToAll}
                                 onChange={(e) => setApplyToAll(e.target.checked)}
-                                className="rounded-none border-2 border-neoink bg-white text-neoink focus:ring-0 focus:ring-offset-0 w-4 h-4 cursor-pointer accent-neoaccent"
+                                className="rounded-md border border-neoink/20 bg-white text-neoaccent focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer accent-neoaccent"
                               />
-                              <span className="text-[10px] font-mono uppercase tracking-wider text-neoink/60 group-hover:text-neoink transition-colors font-bold">Change All</span>
+                              <span className="text-[10px] font-mono uppercase tracking-wider text-neoink/40 group-hover:text-neoink/70 transition-colors font-bold">Apply To All</span>
                             </label>
                           </div>
-                          <div className="flex flex-col gap-3.5">
+                          <div className="flex flex-col gap-2">
                             {[
                               { size: 1024, label: '1K (1024 × 1024)' },
                               { size: 2048, label: '2K (2048 × 2048)' },
@@ -2084,15 +2198,15 @@ const emojiPalette = [
                                     updateActiveImage({ targetSize: size });
                                   }
                                 }}
-                                className={`py-3 px-4 text-center rounded-none text-xs font-mono uppercase tracking-wider transition-all flex justify-between items-center cursor-pointer border-2 ${
+                                className={`py-2.5 px-3.5 text-center rounded-xl text-xs font-mono uppercase tracking-wider transition-all flex justify-between items-center cursor-pointer border ${
                                   activeImage.targetSize === size 
-                                    ? 'bg-neoaccent text-white border-neoink shadow-[3px_3px_0_#18181A] font-bold' 
-                                    : 'bg-neosurface text-neoink/70 hover:bg-neoyellow/10 border-neoink/30 shadow-[2px_2px_0_#18181A]'
+                                    ? 'bg-neoink text-white border-transparent shadow-md font-bold' 
+                                    : 'bg-[#F8F7F4] text-neoink/70 hover:bg-white border-neoink/10 shadow-sm'
                                 }`}
                               >
                                 <span>{label}</span>
                                 {activeImage.targetSize === size && (
-                                  <span className="text-[9px] uppercase tracking-widest font-mono font-bold bg-neoyellow border-2 border-neoink text-neoink px-1.5 py-0.5">Active</span>
+                                  <span className="text-[8px] uppercase tracking-widest font-mono font-bold bg-white/20 text-white px-1.5 py-0.5 rounded">Active</span>
                                 )}
                               </button>
                             ))}
@@ -2100,7 +2214,7 @@ const emojiPalette = [
                         </div>
  
                         {/* Color Filters */}
-                        <div className="space-y-4 pt-6 border-t-3 border-neoink text-left">
+                        <div className="space-y-4 pt-6 border-t border-neoink/10 text-left">
                           <div className="flex justify-between items-center">
                             <label className="text-xs font-bold uppercase tracking-wider text-neoink/85 font-sans flex items-center gap-1.5">
                               <SlidersHorizontal className="w-3.5 h-3.5 text-neoaccent stroke-[2.5]" />
@@ -2121,10 +2235,10 @@ const emojiPalette = [
                               <button
                                 key={filt}
                                 onClick={() => updateActiveImage({ filter: filt })}
-                                className={`py-1.5 px-1 text-center rounded-none text-[9px] font-mono uppercase tracking-wider transition-all border-2 ${
+                                className={`py-2 px-1 text-center rounded-lg text-[9px] font-mono uppercase tracking-wider transition-all border ${
                                   (activeImage.filter || 'None') === filt
-                                    ? 'bg-neoaccent text-white border-neoink shadow-[2px_2px_0_#18181A] font-bold'
-                                    : 'bg-neosurface text-neoink/75 border-neoink/30 hover:border-neoink shadow-[1px_1px_0_#18181A] hover:bg-neoyellow/10'
+                                    ? 'bg-neoaccent text-white border-transparent shadow-md font-bold'
+                                    : 'bg-[#F8F7F4] text-neoink/75 border-neoink/5 hover:bg-white shadow-sm'
                                 }`}
                               >
                                 {filt}
@@ -2135,7 +2249,7 @@ const emojiPalette = [
  
                         {/* Image Effects Station */}
                         {!activeImage.isVideo ? (
-                          <div className="space-y-4 pt-6 border-t-3 border-neoink text-left">
+                          <div className="space-y-4 pt-6 border-t border-neoink/10 text-left">
                             <div className="flex justify-between items-center">
                               <label className="text-xs font-bold uppercase tracking-wider text-neoink/85 font-sans flex items-center gap-1.5">
                                 <Sparkles className="w-3.5 h-3.5 text-neoaccent stroke-[2.5]" />
@@ -2173,10 +2287,10 @@ const emojiPalette = [
                                       }
                                       updateActiveImage(updates);
                                     }}
-                                    className={`py-2.5 px-3 rounded-none text-left text-[10px] font-bold uppercase tracking-wider transition-all border-2 flex items-center gap-2 cursor-pointer ${
+                                    className={`py-2.5 px-3 rounded-xl text-left text-[10px] font-bold uppercase tracking-wider transition-all border flex items-center gap-2 cursor-pointer ${
                                       isActive
-                                        ? 'bg-neoaccent text-white border-neoink shadow-[3px_3px_0_#18181A]'
-                                        : 'bg-neosurface text-neoink/75 border-neoink/30 hover:border-neoink hover:bg-neoyellow/10 shadow-[2px_2px_0_#18181A]'
+                                        ? 'bg-neoaccent text-white border-transparent shadow-md'
+                                        : 'bg-[#F8F7F4] text-neoink/75 border-neoink/5 hover:bg-white shadow-sm'
                                     }`}
                                   >
                                     <IconComponent className={`w-3.5 h-3.5 ${isActive ? 'text-white stroke-[2.5]' : 'text-neoink/40 stroke-[2]'}`} />
@@ -2188,7 +2302,7 @@ const emojiPalette = [
  
                             {/* Dynamic Control Sliders for Pixelate */}
                             {activeImage.effect === 'Pixelate' && (
-                              <div className="p-4 bg-neoyellow/10 border-2 border-neoink rounded-none space-y-2.5 animate-fade-in text-left shadow-[2px_2px_0_#18181A]">
+                              <div className="p-4 bg-[#F8F7F4] border border-neoink/10 rounded-xl space-y-2.5 animate-fade-in text-left shadow-sm">
                                 <div className="flex justify-between text-[10px] font-mono uppercase tracking-widest text-neoink/70 font-bold">
                                   <span>Pixel block size</span>
                                   <span className="text-neoaccent">{activeImage.pixelSize || 16}px</span>
@@ -2200,9 +2314,9 @@ const emojiPalette = [
                                   step="4"
                                   value={activeImage.pixelSize || 16}
                                   onChange={(e) => updateActiveImage({ pixelSize: parseInt(e.target.value) })}
-                                  className="w-full h-1.5 bg-neoink/20 rounded-none appearance-none cursor-pointer accent-neoaccent border border-neoink"
+                                  className="w-full h-1.5 bg-neoink/10 rounded-lg appearance-none cursor-pointer accent-neoaccent"
                                 />
-                                <div className="flex justify-between text-[8px] font-mono uppercase text-neoink/50 font-bold">
+                                <div className="flex justify-between text-[8px] font-mono uppercase text-neoink/40 font-bold">
                                   <span>Fine (4px)</span>
                                   <span>Retro (64px)</span>
                                 </div>
@@ -2211,7 +2325,7 @@ const emojiPalette = [
  
                             {/* Dynamic Control Sliders for Emoji Mosaic */}
                             {activeImage.effect === 'EmojiMosaic' && (
-                              <div className="p-4 bg-neoyellow/10 border-2 border-neoink rounded-none space-y-2.5 animate-fade-in text-left shadow-[2px_2px_0_#18181A]">
+                              <div className="p-4 bg-[#F8F7F4] border border-neoink/10 rounded-xl space-y-2.5 animate-fade-in text-left shadow-sm">
                                 <div className="flex justify-between text-[10px] font-mono uppercase tracking-widest text-neoink/70 font-bold">
                                   <span>Emoji Block Size</span>
                                   <span className="text-neoaccent">{activeImage.emojiDensity || 12}px</span>
@@ -2223,9 +2337,9 @@ const emojiPalette = [
                                   step="2"
                                   value={activeImage.emojiDensity || 12}
                                   onChange={(e) => updateActiveImage({ emojiDensity: parseInt(e.target.value) })}
-                                  className="w-full h-1.5 bg-neoink/20 rounded-none appearance-none cursor-pointer accent-neoaccent border border-neoink"
+                                  className="w-full h-1.5 bg-neoink/10 rounded-lg appearance-none cursor-pointer accent-neoaccent"
                                 />
-                                <div className="flex justify-between text-[8px] font-mono uppercase text-neoink/50 font-bold">
+                                <div className="flex justify-between text-[8px] font-mono uppercase text-neoink/40 font-bold">
                                   <span>Dense (8px)</span>
                                   <span>Spaced (24px)</span>
                                 </div>
@@ -2233,32 +2347,76 @@ const emojiPalette = [
                             )}
                           </div>
                         ) : (
-                          <div className="p-4 bg-neoyellow/10 border-2 border-neoink rounded-none space-y-2 pt-6 border-t border-[#1D1D1B]/15 text-left shadow-[2px_2px_0_#18181A]">
+                          <div className="p-4 bg-[#F8F7F4] border border-neoink/10 rounded-xl space-y-2 text-left shadow-sm">
                             <h4 className="text-xs font-bold text-neoink uppercase tracking-wider flex items-center gap-1.5">
                               <Video className="w-3.5 h-3.5 text-neoaccent stroke-[2.5]" />
                               <span>Video Mode Active</span>
                             </h4>
                             <p className="text-[10px] text-neoink/60 font-sans leading-normal font-medium">
-                              CSS color filters, custom rotations, and scaling transformations are fully supported for real-time video playback and export!
+                              Color filters, rotation overlays, and dimension maps are fully responsive for video compilation!
                             </p>
                           </div>
                         )}
  
+                        {/* Dataset Metadata Export Station */}
+                        <div className="space-y-4 pt-6 border-t border-neoink/10 text-left">
+                          <label className="text-xs font-bold uppercase tracking-wider text-neoink/85 font-sans flex items-center gap-1.5">
+                            <Database className="w-3.5 h-3.5 text-neoaccent stroke-[2.5]" />
+                            <span>Metadata Export Station</span>
+                          </label>
+                          <div className="bg-[#F8F7F4] border border-neoink/10 p-4 rounded-xl space-y-3 shadow-sm">
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono font-bold">
+                              <div className="bg-white p-2 border border-neoink/5 rounded-lg">
+                                <span className="text-neoink/40 block text-[8px] uppercase">Photos Count</span>
+                                <span className="text-xs text-neoink">{images.length}</span>
+                              </div>
+                              <div className="bg-white p-2 border border-neoink/5 rounded-lg">
+                                <span className="text-neoink/40 block text-[8px] uppercase">Videos Count</span>
+                                <span className="text-xs text-neoink">{images.filter(i => i.isVideo).length}</span>
+                              </div>
+                            </div>
+                            
+                            <p className="text-[10px] text-neoink/60 leading-normal font-sans">
+                              Export standalone training-ready manifest files instantly to sync with PyTorch, TensorFlow, or Pandas.
+                            </p>
+                            
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={downloadManifestJSON}
+                                className="py-2 px-2.5 bg-white border border-neoink/10 hover:bg-neoaccent hover:text-white hover:border-transparent transition-all font-mono font-bold text-[9px] uppercase tracking-wider cursor-pointer rounded-lg flex items-center justify-center gap-1 text-neoink shadow-sm"
+                                title="Download dataset_manifest.json"
+                              >
+                                <FileText className="w-3 h-3 text-neoaccent" />
+                                <span>JSON Manifest</span>
+                              </button>
+                              
+                              <button
+                                onClick={downloadManifestCSV}
+                                className="py-2 px-2.5 bg-white border border-neoink/10 hover:bg-neoaccent hover:text-white hover:border-transparent transition-all font-mono font-bold text-[9px] uppercase tracking-wider cursor-pointer rounded-lg flex items-center justify-center gap-1 text-neoink shadow-sm"
+                                title="Download dataset_manifest.csv"
+                              >
+                                <Grid className="w-3 h-3 text-emerald-600" />
+                                <span>CSV Spread</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
                         {/* Interactive Pixel Lead Option */}
-                        <div className="space-y-3 pt-6 border-t-3 border-neoink text-left">
-                          <label className="flex items-center justify-between p-3.5 bg-neosurface border-2 border-neoink shadow-[3px_3px_0_#18181A] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#18181A] rounded-none cursor-pointer transition-all">
+                        <div className="space-y-3 pt-6 border-t border-neoink/10 text-left">
+                          <label className="flex items-center justify-between p-3.5 bg-white border border-neoink/10 hover:shadow-md rounded-xl cursor-pointer transition-all">
                             <div className="flex items-center gap-2">
                               <Eye className="w-4 h-4 text-neoaccent stroke-[2.5]" />
                               <div>
                                 <p className="text-xs font-bold uppercase tracking-wider text-neoink">Enable Pixel Lead</p>
-                                <p className="text-[9px] text-neoink/50 font-mono font-bold">Real-time hover coordinates & RGB values</p>
+                                <p className="text-[9px] text-neoink/40 font-mono font-bold">Hover coordinates & RGB values</p>
                               </div>
                             </div>
                             <input 
                               type="checkbox" 
                               checked={enablePixelLead}
                               onChange={(e) => setEnablePixelLead(e.target.checked)}
-                              className="rounded-none border-2 border-neoink bg-white text-neoaccent focus:ring-0 focus:ring-offset-0 w-4 h-4 cursor-pointer accent-neoaccent"
+                              className="rounded-md border border-neoink/25 bg-white text-neoaccent focus:ring-0 focus:ring-offset-0 w-4 h-4 cursor-pointer accent-neoaccent"
                             />
                           </label>
                         </div>
@@ -2267,12 +2425,12 @@ const emojiPalette = [
                   </div>
                 </div>
                 
-                <div className="p-6 bg-neoyellow/10 border-t-4 border-neoink mt-auto shrink-0">
+                <div className="p-6 bg-white border-t border-neoink/10 mt-auto shrink-0">
                   <button 
                     onClick={exportZip}
-                    className="w-full py-4 px-4 bg-neoaccent text-white border-3 border-neoink hover:bg-neoaccent/95 text-sm font-mono font-extrabold uppercase tracking-widest gap-2 cursor-pointer flex items-center justify-center transition-all shadow-[6px_6px_0_#18181A] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[4px_4px_0_#18181A] active:translate-x-[4px] active:translate-y-[4px] active:shadow-[2px_2px_0_#18181A] rounded-none"
+                    className="w-full py-3.5 px-4 bg-neoaccent text-white border border-transparent hover:bg-[#E63946]/90 text-xs font-mono font-bold uppercase tracking-widest gap-2 cursor-pointer flex items-center justify-center transition-all shadow-md active:scale-[0.99] rounded-xl"
                   >
-                    <Download className="w-5 h-5 text-white stroke-[2.5]" />
+                    <Download className="w-4 h-4 text-white stroke-[2.5]" />
                     <span>Download All as ZIP</span>
                   </button>
                 </div>
