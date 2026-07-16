@@ -1,0 +1,8 @@
+{
+  "name": "Circle",
+  "description": "High-fidelity professional dataset preparation tool to resize, scale, crop, rotate, and package clean image series into a download ZIP collection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

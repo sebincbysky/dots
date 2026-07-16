@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@700&family=Inter:wght@300;400;500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-gaegu: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-neoyellow: #F8F7F4;
+  --color-neoink: #1D1D1B;
+  --color-neoaccent: #E63946;
+  --color-neosurface: #FFFFFF;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
