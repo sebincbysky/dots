@@ -69,6 +69,7 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [history, setHistory] = useState<{ images: ImageState[]; activeId: string | null }[]>([]);
   const [applyToAll, setApplyToAll] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<'workspace' | 'scraper'>('workspace');
@@ -801,227 +802,281 @@ const emojiPalette = [
 
   const exportZip = async () => {
     if (images.length === 0) return;
-    const zip = new JSZip();
+    setIsExporting(true);
+    try {
+      const zip = new JSZip();
 
-    // 1. Export actual processed media assets
-    for (const imgState of images) {
-      if (imgState.isVideo) {
-        try {
-          const response = await fetch(imgState.src);
-          const blob = await response.blob();
-          zip.file(imgState.name, blob);
-        } catch (err) {
-          console.error("Error adding video to zip:", err);
-          zip.file(`${imgState.name}_download_link.txt`, `Source video URL: ${imgState.src}`);
-        }
-        continue;
-      }
-
-      const imgElement = new Image();
-      await new Promise((resolve) => {
-        imgElement.onload = resolve;
-        imgElement.src = imgState.src;
-      });
-
-      const offscreenCanvas = document.createElement('canvas');
-      const imgAspect = imgElement.width / imgElement.height;
-      let targetWidth = imgState.targetSize;
-      let targetHeight = imgState.targetSize;
-
-      if (imgAspect > 1) {
-        targetWidth = imgState.targetSize;
-        targetHeight = Math.round(imgState.targetSize / imgAspect);
-      } else {
-        targetHeight = imgState.targetSize;
-        targetWidth = Math.round(imgState.targetSize * imgAspect);
-      }
-
-      offscreenCanvas.width = targetWidth;
-      offscreenCanvas.height = targetHeight;
-      const ctx = offscreenCanvas.getContext('2d');
-      if (!ctx) continue;
-      
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      
-      let filterStr = 'none';
-      if (imgState.filter) {
-        switch (imgState.filter) {
-          case 'Grayscale':
-            filterStr = 'grayscale(100%)';
-            break;
-          case 'Sepia':
-            filterStr = 'sepia(100%)';
-            break;
-          case 'Warm':
-            filterStr = 'sepia(30%) saturate(140%) hue-rotate(-10deg)';
-            break;
-          case 'Cool':
-            filterStr = 'contrast(110%) saturate(110%) hue-rotate(15deg)';
-            break;
-          case 'Vintage':
-            filterStr = 'contrast(90%) sepia(50%) hue-rotate(-15deg) saturate(80%)';
-            break;
-          case 'Invert':
-            filterStr = 'invert(100%)';
-            break;
-          case 'Sunset':
-            filterStr = 'sepia(40%) saturate(180%) hue-rotate(-20deg) contrast(105%)';
-            break;
-          default:
-            filterStr = 'none';
-        }
-      }
-      ctx.filter = filterStr;
-
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-
-      ctx.save();
-      ctx.translate(offscreenCanvas.width / 2, offscreenCanvas.height / 2);
-      ctx.rotate((imgState.rotation * Math.PI) / 180);
-      
-      const baseScale = Math.min(offscreenCanvas.width / imgElement.width, offscreenCanvas.height / imgElement.height);
-      const finalScale = baseScale * imgState.scale;
-      
-      ctx.scale(finalScale, finalScale);
-      ctx.drawImage(imgElement, -imgElement.width / 2, -imgElement.height / 2);
-      ctx.restore();
-
-      if (imgState.effect && imgState.effect !== 'None') {
-        ctx.filter = 'none';
-        if (imgState.effect === 'Pixelate') {
-          const pSize = imgState.pixelSize || 16;
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = Math.max(1, Math.ceil(offscreenCanvas.width / pSize));
-          tempCanvas.height = Math.max(1, Math.ceil(offscreenCanvas.height / pSize));
-          const tempCtx = tempCanvas.getContext('2d');
-          if (tempCtx) {
-            tempCtx.imageSmoothingEnabled = false;
-            tempCtx.drawImage(offscreenCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+      // 1. Export actual processed media assets
+      for (const imgState of images) {
+        if (imgState.isVideo) {
+          try {
+            const response = await fetch(imgState.src);
+            const blob = await response.blob();
+            zip.file(imgState.name, blob);
+          } catch (err) {
+            console.error("Error adding video to zip:", err);
+            zip.file(`${imgState.name}_download_link.txt`, `Source video URL: ${imgState.src}`);
           }
-        } else if (imgState.effect === 'EdgeDetection') {
-          const imgData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-          const d = imgData.data;
-          const w = offscreenCanvas.width;
-          const h = offscreenCanvas.height;
-          const output = ctx.createImageData(w, h);
-          const out = output.data;
-          for (let y = 0; y < h - 1; y++) {
-            for (let x = 0; x < w - 1; x++) {
-              const idx = (y * w + x) * 4;
-              const idxRight = (y * w + (x + 1)) * 4;
-              const idxDown = ((y + 1) * w + x) * 4;
-              
-              const lum = 0.299 * d[idx] + 0.587 * d[idx+1] + 0.114 * d[idx+2];
-              const lumRight = 0.299 * d[idxRight] + 0.587 * d[idxRight+1] + 0.114 * d[idxRight+2];
-              const lumDown = 0.299 * d[idxDown] + 0.587 * d[idxDown+1] + 0.114 * d[idxDown+2];
-              
-              const gx = lumRight - lum;
-              const gy = lumDown - lum;
-              const edge = Math.min(255, Math.sqrt(gx*gx + gy*gy) * 6);
-              
-              out[idx] = edge;
-              out[idx+1] = edge;
-              out[idx+2] = edge;
-              out[idx+3] = 255;
+          continue;
+        }
+
+        const imgElement = new Image();
+        imgElement.crossOrigin = "anonymous";
+        
+        let loadSuccess = false;
+        await new Promise((resolve) => {
+          imgElement.onload = () => {
+            loadSuccess = true;
+            resolve(null);
+          };
+          imgElement.onerror = () => {
+            resolve(null);
+          };
+          imgElement.src = imgState.src;
+        });
+
+        // CORS Fallback: Try loading without crossOrigin if anonymous fails
+        if (!loadSuccess) {
+          imgElement.removeAttribute('crossOrigin');
+          await new Promise((resolve) => {
+            imgElement.onload = () => {
+              loadSuccess = true;
+              resolve(null);
+            };
+            imgElement.onerror = () => {
+              resolve(null);
+            };
+            imgElement.src = imgState.src;
+          });
+        }
+
+        if (!loadSuccess) {
+          console.warn(`Failed to load image: ${imgState.name}`);
+          // Direct fetch fallback
+          try {
+            const response = await fetch(imgState.src);
+            const blob = await response.blob();
+            zip.file(imgState.name, blob);
+          } catch (fetchErr) {
+            console.error(`Double fallback fetch failed for: ${imgState.name}`, fetchErr);
+            zip.file(`${imgState.name}_download_link.txt`, `Source image URL: ${imgState.src}`);
+          }
+          continue;
+        }
+
+        let targetWidth = imgState.targetSize;
+        let targetHeight = imgState.targetSize;
+
+        try {
+          const offscreenCanvas = document.createElement('canvas');
+          const imgAspect = imgElement.width / imgElement.height;
+
+          if (imgAspect > 1) {
+            targetWidth = imgState.targetSize;
+            targetHeight = Math.round(imgState.targetSize / imgAspect);
+          } else {
+            targetHeight = imgState.targetSize;
+            targetWidth = Math.round(imgState.targetSize * imgAspect);
+          }
+
+          offscreenCanvas.width = targetWidth;
+          offscreenCanvas.height = targetHeight;
+          const ctx = offscreenCanvas.getContext('2d');
+          if (!ctx) continue;
+          
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          
+          let filterStr = 'none';
+          if (imgState.filter) {
+            switch (imgState.filter) {
+              case 'Grayscale':
+                filterStr = 'grayscale(100%)';
+                break;
+              case 'Sepia':
+                filterStr = 'sepia(100%)';
+                break;
+              case 'Warm':
+                filterStr = 'sepia(30%) saturate(140%) hue-rotate(-10deg)';
+                break;
+              case 'Cool':
+                filterStr = 'contrast(110%) saturate(110%) hue-rotate(15deg)';
+                break;
+              case 'Vintage':
+                filterStr = 'contrast(90%) sepia(50%) hue-rotate(-15deg) saturate(80%)';
+                break;
+              case 'Invert':
+                filterStr = 'invert(100%)';
+                break;
+              case 'Sunset':
+                filterStr = 'sepia(40%) saturate(180%) hue-rotate(-20deg) contrast(105%)';
+                break;
+              default:
+                filterStr = 'none';
             }
           }
-          ctx.putImageData(output, 0, 0);
-        } else if (imgState.effect === 'EmojiMosaic') {
-          const imgData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-          const data = imgData.data;
-          const w = offscreenCanvas.width;
-          const h = offscreenCanvas.height;
+          ctx.filter = filterStr;
 
-          ctx.fillStyle = '#0a0a0c';
-          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
 
-          const cellSize = imgState.emojiDensity || 12;
-          ctx.font = `${cellSize}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
+          ctx.save();
+          ctx.translate(offscreenCanvas.width / 2, offscreenCanvas.height / 2);
+          ctx.rotate((imgState.rotation * Math.PI) / 180);
+          
+          const baseScale = Math.min(offscreenCanvas.width / imgElement.width, offscreenCanvas.height / imgElement.height);
+          const finalScale = baseScale * imgState.scale;
+          
+          ctx.scale(finalScale, finalScale);
+          ctx.drawImage(imgElement, -imgElement.width / 2, -imgElement.height / 2);
+          ctx.restore();
 
-          for (let y = cellSize / 2; y < h; y += cellSize) {
-            for (let x = cellSize / 2; x < w; x += cellSize) {
-              const px = Math.floor(x);
-              const py = Math.floor(y);
-              if (px >= 0 && px < w && py >= 0 && py < h) {
-                const idx = (py * w + px) * 4;
-                const r = data[idx];
-                const g = data[idx+1];
-                const b = data[idx+2];
-                const a = data[idx+3];
-                
-                if (a > 30) {
-                  let bestEmoji = '⚫';
-                  let minDist = Infinity;
-                  for (const pal of emojiPalette) {
-                    const dist = Math.pow(r - pal.r, 2) + Math.pow(g - pal.g, 2) + Math.pow(b - pal.b, 2);
-                    if (dist < minDist) {
-                      minDist = dist;
-                      bestEmoji = pal.emoji;
+          if (imgState.effect && imgState.effect !== 'None') {
+            ctx.filter = 'none';
+            if (imgState.effect === 'Pixelate') {
+              const pSize = imgState.pixelSize || 16;
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = Math.max(1, Math.ceil(offscreenCanvas.width / pSize));
+              tempCanvas.height = Math.max(1, Math.ceil(offscreenCanvas.height / pSize));
+              const tempCtx = tempCanvas.getContext('2d');
+              if (tempCtx) {
+                tempCtx.imageSmoothingEnabled = false;
+                tempCtx.drawImage(offscreenCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+              }
+            } else if (imgState.effect === 'EdgeDetection') {
+              const imgData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+              const d = imgData.data;
+              const w = offscreenCanvas.width;
+              const h = offscreenCanvas.height;
+              const output = ctx.createImageData(w, h);
+              const out = output.data;
+              for (let y = 0; y < h - 1; y++) {
+                for (let x = 0; x < w - 1; x++) {
+                  const idx = (y * w + x) * 4;
+                  const idxRight = (y * w + (x + 1)) * 4;
+                  const idxDown = ((y + 1) * w + x) * 4;
+                  
+                  const lum = 0.299 * d[idx] + 0.587 * d[idx+1] + 0.114 * d[idx+2];
+                  const lumRight = 0.299 * d[idxRight] + 0.587 * d[idxRight+1] + 0.114 * d[idxRight+2];
+                  const lumDown = 0.299 * d[idxDown] + 0.587 * d[idxDown+1] + 0.114 * d[idxDown+2];
+                  
+                  const gx = lumRight - lum;
+                  const gy = lumDown - lum;
+                  const edge = Math.min(255, Math.sqrt(gx*gx + gy*gy) * 6);
+                  
+                  out[idx] = edge;
+                  out[idx+1] = edge;
+                  out[idx+2] = edge;
+                  out[idx+3] = 255;
+                }
+              }
+              ctx.putImageData(output, 0, 0);
+            } else if (imgState.effect === 'EmojiMosaic') {
+              const imgData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+              const data = imgData.data;
+              const w = offscreenCanvas.width;
+              const h = offscreenCanvas.height;
+
+              ctx.fillStyle = '#0a0a0c';
+              ctx.fillRect(0, 0, w, h);
+
+              const cellSize = imgState.emojiDensity || 12;
+              ctx.font = `${cellSize}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+
+              for (let y = cellSize / 2; y < h; y += cellSize) {
+                for (let x = cellSize / 2; x < w; x += cellSize) {
+                  const px = Math.floor(x);
+                  const py = Math.floor(y);
+                  if (px >= 0 && px < w && py >= 0 && py < h) {
+                    const idx = (py * w + px) * 4;
+                    const r = data[idx];
+                    const g = data[idx+1];
+                    const b = data[idx+2];
+                    const a = data[idx+3];
+                    
+                    if (a > 30) {
+                      let bestEmoji = '⚫';
+                      let minDist = Infinity;
+                      for (const pal of emojiPalette) {
+                        const dist = Math.pow(r - pal.r, 2) + Math.pow(g - pal.g, 2) + Math.pow(b - pal.b, 2);
+                        if (dist < minDist) {
+                          minDist = dist;
+                          bestEmoji = pal.emoji;
+                        }
+                      }
+                      ctx.fillText(bestEmoji, x, y);
                     }
                   }
-                  ctx.fillText(bestEmoji, x, y);
                 }
               }
             }
           }
+          
+          const dataUrl = offscreenCanvas.toDataURL('image/png');
+          const base64Data = dataUrl.split(',')[1];
+          
+          zip.file(`${imgState.name}_${targetWidth}x${targetHeight}.png`, base64Data, { base64: true });
+        } catch (canvasErr) {
+          console.error(`Canvas processing failed for: ${imgState.name}`, canvasErr);
+          // Canvas failure / SecurityError fallback: export the original blob
+          try {
+            const response = await fetch(imgState.src);
+            const blob = await response.blob();
+            zip.file(imgState.name, blob);
+          } catch (fetchErr) {
+            console.error(`Fallback fetch failed for: ${imgState.name}`, fetchErr);
+            zip.file(`${imgState.name}_download_link.txt`, `Source image URL: ${imgState.src}`);
+          }
         }
       }
+
+      // 2. Generate and Add Manifests (JSON, CSV, README)
+      const manifestData = getManifestData();
       
-      const dataUrl = offscreenCanvas.toDataURL('image/png');
-      const base64Data = dataUrl.split(',')[1];
-      
-      zip.file(`${imgState.name}_${targetWidth}x${targetHeight}.png`, base64Data, { base64: true });
-    }
+      // JSON Manifest
+      zip.file('dataset_manifest.json', JSON.stringify(manifestData, null, 2));
 
-    // 2. Generate and Add Manifests (JSON, CSV, README)
-    const manifestData = getManifestData();
-    
-    // JSON Manifest
-    zip.file('dataset_manifest.json', JSON.stringify(manifestData, null, 2));
+      // CSV Manifest
+      const headers = ['id', 'filename', 'original_name', 'type', 'target_size', 'rotation', 'scale', 'filter', 'effect', 'pixel_size', 'emoji_density', 'ai_cleaned'];
+      const csvContent = [
+        headers.join(','),
+        ...manifestData.map(row => {
+          return headers.map(header => {
+            const val = (row as any)[header];
+            if (val === null || val === undefined) return '';
+            const str = String(val);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+              return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+          }).join(',');
+        })
+      ].join('\n');
+      zip.file('dataset_manifest.csv', csvContent);
 
-    // CSV Manifest
-    const headers = ['id', 'filename', 'original_name', 'type', 'target_size', 'rotation', 'scale', 'filter', 'effect', 'pixel_size', 'emoji_density', 'ai_cleaned'];
-    const csvContent = [
-      headers.join(','),
-      ...manifestData.map(row => {
-        return headers.map(header => {
-          const val = (row as any)[header];
-          if (val === null || val === undefined) return '';
-          const str = String(val);
-          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-            return `"${str.replace(/"/g, '""')}"`;
-          }
-          return str;
-        }).join(',');
-      })
-    ].join('\n');
-    zip.file('dataset_manifest.csv', csvContent);
+      // README dataset documentation
+      const resolutionCounts = manifestData.reduce((acc: any, img) => {
+        acc[img.target_size] = (acc[img.target_size] || 0) + 1;
+        return acc;
+      }, {});
+      const filterCounts = manifestData.reduce((acc: any, img) => {
+        if (img.filter && img.filter !== 'None') {
+          acc[img.filter] = (acc[img.filter] || 0) + 1;
+        }
+        return acc;
+      }, {});
+      const effectCounts = manifestData.reduce((acc: any, img) => {
+        if (img.effect && img.effect !== 'None') {
+          acc[img.effect] = (acc[img.effect] || 0) + 1;
+        }
+        return acc;
+      }, {});
 
-    // README dataset documentation
-    const resolutionCounts = manifestData.reduce((acc: any, img) => {
-      acc[img.target_size] = (acc[img.target_size] || 0) + 1;
-      return acc;
-    }, {});
-    const filterCounts = manifestData.reduce((acc: any, img) => {
-      if (img.filter && img.filter !== 'None') {
-        acc[img.filter] = (acc[img.filter] || 0) + 1;
-      }
-      return acc;
-    }, {});
-    const effectCounts = manifestData.reduce((acc: any, img) => {
-      if (img.effect && img.effect !== 'None') {
-        acc[img.effect] = (acc[img.effect] || 0) + 1;
-      }
-      return acc;
-    }, {});
-
-    const readmeText = `# Machine Learning Training Dataset Export
+      const readmeText = `# Machine Learning Training Dataset Export
 
 Compiled and optimized with **Circle Dataset Processing Station**.
 
@@ -1046,10 +1101,15 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
 2. **dataset_manifest.csv**: Flattened dataset index ready for instant Pandas / PyTorch loader imports.
 3. **[Asset Folders]**: PNG resolution-scaled output assets named as \`{originalName}_{targetSize}x{targetSize}.png\`.
 `;
-    zip.file('README.md', readmeText);
+      zip.file('README.md', readmeText);
 
-    const content = await zip.generateAsync({ type: 'blob' });
-    saveAs(content, `dataset_export.zip`);
+      const content = await zip.generateAsync({ type: 'blob' });
+      saveAs(content, `dataset_export.zip`);
+    } catch (err) {
+      console.error("ZIP Export failed completely:", err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const removeImage = (id: string, e: React.MouseEvent) => {
@@ -2428,10 +2488,26 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
                 <div className="p-6 bg-white border-t border-neoink/10 mt-auto shrink-0">
                   <button 
                     onClick={exportZip}
-                    className="w-full py-3.5 px-4 bg-neoaccent text-white border border-transparent hover:bg-[#E63946]/90 text-xs font-mono font-bold uppercase tracking-widest gap-2 cursor-pointer flex items-center justify-center transition-all shadow-md active:scale-[0.99] rounded-xl"
+                    disabled={images.length === 0 || isExporting}
+                    className={`w-full py-3.5 px-4 text-xs font-mono font-bold uppercase tracking-widest gap-2 flex items-center justify-center transition-all rounded-xl shadow-md ${
+                      images.length === 0 
+                        ? 'bg-neoink/10 text-neoink/40 cursor-not-allowed border border-neoink/5 shadow-none'
+                        : isExporting
+                          ? 'bg-[#E63946]/75 text-white cursor-wait opacity-85'
+                          : 'bg-neoaccent text-white border border-transparent hover:bg-[#E63946]/90 cursor-pointer active:scale-[0.99]'
+                    }`}
                   >
-                    <Download className="w-4 h-4 text-white stroke-[2.5]" />
-                    <span>Download All as ZIP</span>
+                    {isExporting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 text-white animate-spin stroke-[2.5]" />
+                        <span>Compiling ZIP...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 text-white stroke-[2.5]" />
+                        <span>Download All as ZIP</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
