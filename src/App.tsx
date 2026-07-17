@@ -103,15 +103,76 @@ export default function App() {
   const [scraperSearchQuery, setScraperSearchQuery] = useState<string>('');
   const [selectedScrapedIds, setSelectedScrapedIds] = useState<string[]>([]);
 
+  // Scraper Engine Lifecycle States
+  const [isEngineStarted, setIsEngineStarted] = useState(true); // default to started to keep workflow accessible, with controls to toggle
+  const [isStartingEngine, setIsStartingEngine] = useState(false);
+  const [engineLogs, setEngineLogs] = useState<string[]>([]);
+
   // Fullscreen interactive preview item
   const [fullscreenPreviewItem, setFullscreenPreviewItem] = useState<any | null>(null);
+
+  // States for pre-ingest / un-post adjustments in the fullscreen preview
+  const [previewRotation, setPreviewRotation] = useState<number>(0);
+  const [previewScale, setPreviewScale] = useState<number>(1);
+  const [previewFilter, setPreviewFilter] = useState<string>('None');
+  const [previewEffect, setPreviewEffect] = useState<string>('None');
+  const [previewPixelSize, setPreviewPixelSize] = useState<number>(16);
+  const [previewEmojiDensity, setPreviewEmojiDensity] = useState<number>(12);
+
+  // Reset preview states when the fullscreen item changes
+  useEffect(() => {
+    if (fullscreenPreviewItem) {
+      setPreviewRotation(0);
+      setPreviewScale(1);
+      setPreviewFilter('None');
+      setPreviewEffect('None');
+      setPreviewPixelSize(16);
+      setPreviewEmojiDensity(12);
+    }
+  }, [fullscreenPreviewItem]);
 
   // Pixel Lead Coordinates tracking state
   const [pixelLead, setPixelLead] = useState<{ x: number; y: number; r: number; g: number; b: number; hex: string; visualX: number; visualY: number } | null>(null);
   const [enablePixelLead, setEnablePixelLead] = useState(true);
 
+  // Start Scraper Engine with simulated beautiful live boot logs
+  const startScraperEngine = async () => {
+    setIsStartingEngine(true);
+    setIsEngineStarted(false);
+    setEngineLogs([]);
+    
+    const logs = [
+      "⚡ Booting core dataset crawler proxy...",
+      "🔒 Initializing secure headers & cookie sanitizers...",
+      "🌐 Mounting bypass tunnels to avoid host blockades...",
+      "✓ Connection handshake verified.",
+      "🚀 SCRAPER ENGINE STATUS: ACTIVE & READY."
+    ];
+    
+    for (let i = 0; i < logs.length; i++) {
+      setEngineLogs(prev => [...prev, logs[i]]);
+      await new Promise(r => setTimeout(r, 450));
+    }
+    
+    setIsEngineStarted(true);
+    setIsStartingEngine(false);
+  };
+
+  const stopScraperEngine = () => {
+    setIsEngineStarted(false);
+    setEngineLogs([]);
+    setDeduplicateStatus("Scraper Engine offline.");
+    setTimeout(() => setDeduplicateStatus(null), 3000);
+  };
+
   // Run scraper search proxy to fetch real Unsplash NAPI images matching query
   const handleScrape = async (customQuery?: string, customMediaType?: 'Photos' | 'Videos') => {
+    if (!isEngineStarted) {
+      setDeduplicateStatus("Scraper Engine is offline! Please activate it above.");
+      setTimeout(() => setDeduplicateStatus(null), 4000);
+      return;
+    }
+
     const q = (customQuery || scrapeQuery).trim();
     if (!q) return;
     const media = customMediaType || scrapeMediaType;
@@ -131,7 +192,7 @@ export default function App() {
 
   // Pre-load default scraper results on first mount or tab switch
   useEffect(() => {
-    if (scrapedResults.length === 0) {
+    if (scrapedResults.length === 0 && isEngineStarted) {
       handleScrape('organic textures');
     }
   }, []);
@@ -144,6 +205,12 @@ export default function App() {
   };
 
   const handleUrlScrape = async () => {
+    if (!isEngineStarted) {
+      setDeduplicateStatus("Scraper Engine is offline! Please activate it above.");
+      setTimeout(() => setDeduplicateStatus(null), 4000);
+      return;
+    }
+
     if (!scrapeUrlInput.trim()) return;
     setIsUrlScraping(true);
     setUrlScraperError(null);
@@ -176,13 +243,13 @@ export default function App() {
           id: Math.random().toString(36).substring(2, 9),
           src: item.src,
           name: (item.alt || `scraped_${i}`).toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20) + '.png',
-          rotation: 0,
-          scale: 1,
-          targetSize: item.targetSize || 1024,
-          filter: 'None',
-          effect: 'None',
-          pixelSize: 16,
-          emojiDensity: 12,
+          rotation: (applyToAll && activeImage) ? activeImage.rotation : 0,
+          scale: (applyToAll && activeImage) ? activeImage.scale : 1,
+          targetSize: (applyToAll && activeImage) ? activeImage.targetSize : (item.targetSize || 1024),
+          filter: (applyToAll && activeImage) ? (activeImage.filter || 'None') : 'None',
+          effect: (applyToAll && activeImage) ? (activeImage.effect || 'None') : 'None',
+          pixelSize: (applyToAll && activeImage) ? (activeImage.pixelSize || 16) : 16,
+          emojiDensity: (applyToAll && activeImage) ? (activeImage.emojiDensity || 12) : 12,
         };
       });
 
@@ -232,13 +299,13 @@ export default function App() {
         id: Math.random().toString(36).substring(2, 9),
         src: item.src,
         name: (item.alt || `scraped_${i}`).toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20) + suffix,
-        rotation: 0,
-        scale: 1,
-        targetSize: item.targetSize || 1024,
-        filter: 'None',
-        effect: 'None',
-        pixelSize: 16,
-        emojiDensity: 12,
+        rotation: (applyToAll && activeImage) ? activeImage.rotation : 0,
+        scale: (applyToAll && activeImage) ? activeImage.scale : 1,
+        targetSize: (applyToAll && activeImage) ? activeImage.targetSize : (item.targetSize || 1024),
+        filter: (applyToAll && activeImage) ? (activeImage.filter || 'None') : 'None',
+        effect: (applyToAll && activeImage) ? (activeImage.effect || 'None') : 'None',
+        pixelSize: (applyToAll && activeImage) ? (activeImage.pixelSize || 16) : 16,
+        emojiDensity: (applyToAll && activeImage) ? (activeImage.emojiDensity || 12) : 12,
         isVideo,
       });
     }
@@ -447,7 +514,172 @@ export default function App() {
   };
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+
+  // Live Rendering of Effects & Filters on the Pre-ingest / Un-post Scraper Preview Item
+  const drawPreviewCanvas = useCallback(() => {
+    const canvas = previewCanvasRef.current;
+    if (!canvas || !fullscreenPreviewItem || fullscreenPreviewItem.isVideo) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      // Bound the canvas display dimensions beautifully
+      const maxDim = 500;
+      const aspect = img.width / img.height;
+      if (aspect > 1) {
+        canvas.width = maxDim;
+        canvas.height = Math.round(maxDim / aspect);
+      } else {
+        canvas.height = maxDim;
+        canvas.width = Math.round(maxDim * aspect);
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // 1. Core Preset Photo Filter Processing
+      let filterStr = 'none';
+      switch (previewFilter) {
+        case 'Grayscale':
+          filterStr = 'grayscale(100%)';
+          break;
+        case 'Sepia':
+          filterStr = 'sepia(100%)';
+          break;
+        case 'Warm':
+          filterStr = 'sepia(30%) saturate(140%) hue-rotate(-10deg)';
+          break;
+        case 'Cool':
+          filterStr = 'contrast(110%) saturate(110%) hue-rotate(15deg)';
+          break;
+        case 'Vintage':
+          filterStr = 'contrast(90%) sepia(50%) hue-rotate(-15deg) saturate(80%)';
+          break;
+        case 'Invert':
+          filterStr = 'invert(100%)';
+          break;
+        case 'Sunset':
+          filterStr = 'sepia(40%) saturate(180%) hue-rotate(-20deg) contrast(105%)';
+          break;
+        default:
+          filterStr = 'none';
+      }
+      ctx.filter = filterStr;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((previewRotation * Math.PI) / 180);
+
+      const baseScale = Math.min(canvas.width / img.width, canvas.height / img.height);
+      const finalScale = baseScale * previewScale;
+
+      ctx.scale(finalScale, finalScale);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.restore();
+
+      // 2. High-Fidelity Custom Visual Shader Effects on the Un-posted Image
+      if (previewEffect && previewEffect !== 'None') {
+        ctx.filter = 'none';
+
+        if (previewEffect === 'Pixelate') {
+          const pSize = previewPixelSize || 16;
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = Math.max(1, Math.ceil(canvas.width / pSize));
+          tempCanvas.height = Math.max(1, Math.ceil(canvas.height / pSize));
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx) {
+            tempCtx.imageSmoothingEnabled = false;
+            tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, 0, 0, canvas.width, canvas.height);
+          }
+        } else if (previewEffect === 'EdgeDetection') {
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const d = imgData.data;
+          const w = canvas.width;
+          const h = canvas.height;
+          const output = ctx.createImageData(w, h);
+          const out = output.data;
+          for (let y = 0; y < h - 1; y++) {
+            for (let x = 0; x < w - 1; x++) {
+              const idx = (y * w + x) * 4;
+              const idxRight = (y * w + (x + 1)) * 4;
+              const idxDown = ((y + 1) * w + x) * 4;
+
+              const lum = 0.299 * d[idx] + 0.587 * d[idx+1] + 0.114 * d[idx+2];
+              const lumRight = 0.299 * d[idxRight] + 0.587 * d[idxRight+1] + 0.114 * d[idxRight+2];
+              const lumDown = 0.299 * d[idxDown] + 0.587 * d[idxDown+1] + 0.114 * d[idxDown+2];
+
+              const gx = lumRight - lum;
+              const gy = lumDown - lum;
+              const edge = Math.min(255, Math.sqrt(gx*gx + gy*gy) * 6);
+
+              out[idx] = edge;
+              out[idx+1] = edge;
+              out[idx+2] = edge;
+              out[idx+3] = 255;
+            }
+          }
+          ctx.putImageData(output, 0, 0);
+        } else if (previewEffect === 'EmojiMosaic') {
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imgData.data;
+          const w = canvas.width;
+          const h = canvas.height;
+
+          ctx.fillStyle = '#0a0a0c';
+          ctx.fillRect(0, 0, w, h);
+
+          const cellSize = previewEmojiDensity || 12;
+          ctx.font = `${cellSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          for (let y = cellSize / 2; y < h; y += cellSize) {
+            for (let x = cellSize / 2; x < w; x += cellSize) {
+              const px = Math.floor(x);
+              const py = Math.floor(y);
+              if (px >= 0 && px < w && py >= 0 && py < h) {
+                const idx = (py * w + px) * 4;
+                const r = data[idx];
+                const g = data[idx+1];
+                const b = data[idx+2];
+                const a = data[idx+3];
+
+                if (a > 30) {
+                  let bestEmoji = '⚫';
+                  let minDist = Infinity;
+                  for (const pal of emojiPalette) {
+                    const dist = Math.pow(r - pal.r, 2) + Math.pow(g - pal.g, 2) + Math.pow(b - pal.b, 2);
+                    if (dist < minDist) {
+                      minDist = dist;
+                      bestEmoji = pal.emoji;
+                    }
+                  }
+                  ctx.fillText(bestEmoji, x, y);
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    img.src = fullscreenPreviewItem.src;
+  }, [fullscreenPreviewItem, previewRotation, previewScale, previewFilter, previewEffect, previewPixelSize, previewEmojiDensity]);
+
+  // Hook to draw preview canvas on parameter change
+  useEffect(() => {
+    drawPreviewCanvas();
+  }, [fullscreenPreviewItem, previewRotation, previewScale, previewFilter, previewEffect, previewPixelSize, previewEmojiDensity, drawPreviewCanvas]);
 
   const activeImage = images.find(img => img.id === activeId);
 
@@ -484,9 +716,13 @@ export default function App() {
         file,
         src: rawSrc,
         name,
-        rotation: 0,
-        scale: 1,
-        targetSize: 1024,
+        rotation: (applyToAll && activeImage) ? activeImage.rotation : 0,
+        scale: (applyToAll && activeImage) ? activeImage.scale : 1,
+        targetSize: (applyToAll && activeImage) ? activeImage.targetSize : 1024,
+        filter: (applyToAll && activeImage) ? (activeImage.filter || 'None') : 'None',
+        effect: (applyToAll && activeImage) ? (activeImage.effect || 'None') : 'None',
+        pixelSize: (applyToAll && activeImage) ? (activeImage.pixelSize || 16) : 16,
+        emojiDensity: (applyToAll && activeImage) ? (activeImage.emojiDensity || 12) : 12,
         isVideo,
       });
     });
@@ -519,8 +755,24 @@ export default function App() {
     setIsProcessingUpload(false);
   };
 
+  const handleApplyToAllChange = (checked: boolean) => {
+    setApplyToAll(checked);
+    if (checked && activeImage) {
+      setImages(prev => prev.map(img => ({
+        ...img,
+        rotation: activeImage.rotation,
+        scale: activeImage.scale,
+        targetSize: activeImage.targetSize,
+        filter: activeImage.filter || 'None',
+        effect: activeImage.effect || 'None',
+        pixelSize: activeImage.pixelSize || 16,
+        emojiDensity: activeImage.emojiDensity || 12,
+      })));
+    }
+  };
+
   const updateActiveImage = (updates: Partial<ImageState>) => {
-    setImages(prev => prev.map(img => img.id === activeId ? { ...img, ...updates } : img));
+    setImages(prev => prev.map(img => (applyToAll || img.id === activeId) ? { ...img, ...updates } : img));
   };
 
   // Removed legacy Library functions
@@ -820,8 +1072,26 @@ const emojiPalette = [
           continue;
         }
 
+        // Bypassing CORS canvas tainting: load the image source as a local blob object URL!
+        let loadSrc = imgState.src;
+        let objectUrlToRevoke: string | null = null;
+
+        if (!loadSrc.startsWith('blob:') && !loadSrc.startsWith('data:')) {
+          try {
+            const response = await fetch(loadSrc);
+            const blob = await response.blob();
+            const objUrl = URL.createObjectURL(blob);
+            loadSrc = objUrl;
+            objectUrlToRevoke = objUrl;
+          } catch (fetchErr) {
+            console.warn(`Pre-fetch failed for CORS bypass, loading directly: ${loadSrc}`, fetchErr);
+          }
+        }
+
         const imgElement = new Image();
-        imgElement.crossOrigin = "anonymous";
+        if (!loadSrc.startsWith('blob:') && !loadSrc.startsWith('data:')) {
+          imgElement.crossOrigin = "anonymous";
+        }
         
         let loadSuccess = false;
         await new Promise((resolve) => {
@@ -832,7 +1102,7 @@ const emojiPalette = [
           imgElement.onerror = () => {
             resolve(null);
           };
-          imgElement.src = imgState.src;
+          imgElement.src = loadSrc;
         });
 
         // CORS Fallback: Try loading without crossOrigin if anonymous fails
@@ -846,7 +1116,7 @@ const emojiPalette = [
             imgElement.onerror = () => {
               resolve(null);
             };
-            imgElement.src = imgState.src;
+            imgElement.src = loadSrc;
           });
         }
 
@@ -861,6 +1131,7 @@ const emojiPalette = [
             console.error(`Double fallback fetch failed for: ${imgState.name}`, fetchErr);
             zip.file(`${imgState.name}_download_link.txt`, `Source image URL: ${imgState.src}`);
           }
+          if (objectUrlToRevoke) URL.revokeObjectURL(objectUrlToRevoke);
           continue;
         }
 
@@ -882,7 +1153,10 @@ const emojiPalette = [
           offscreenCanvas.width = targetWidth;
           offscreenCanvas.height = targetHeight;
           const ctx = offscreenCanvas.getContext('2d');
-          if (!ctx) continue;
+          if (!ctx) {
+            if (objectUrlToRevoke) URL.revokeObjectURL(objectUrlToRevoke);
+            continue;
+          }
           
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
@@ -952,6 +1226,12 @@ const emojiPalette = [
               const h = offscreenCanvas.height;
               const output = ctx.createImageData(w, h);
               const out = output.data;
+
+              // Pre-initialize alpha channel so output edges are fully visible on black
+              for (let i = 3; i < out.length; i += 4) {
+                out[i] = 255;
+              }
+
               for (let y = 0; y < h - 1; y++) {
                 for (let x = 0; x < w - 1; x++) {
                   const idx = (y * w + x) * 4;
@@ -1018,8 +1298,10 @@ const emojiPalette = [
           
           const dataUrl = offscreenCanvas.toDataURL('image/png');
           const base64Data = dataUrl.split(',')[1];
+          const cleanName = imgState.name.replace(/\.[^/.]+$/, "");
+          const finalName = `${cleanName}_${targetWidth}x${targetHeight}.png`;
           
-          zip.file(`${imgState.name}_${targetWidth}x${targetHeight}.png`, base64Data, { base64: true });
+          zip.file(finalName, base64Data, { base64: true });
         } catch (canvasErr) {
           console.error(`Canvas processing failed for: ${imgState.name}`, canvasErr);
           // Canvas failure / SecurityError fallback: export the original blob
@@ -1030,6 +1312,10 @@ const emojiPalette = [
           } catch (fetchErr) {
             console.error(`Fallback fetch failed for: ${imgState.name}`, fetchErr);
             zip.file(`${imgState.name}_download_link.txt`, `Source image URL: ${imgState.src}`);
+          }
+        } finally {
+          if (objectUrlToRevoke) {
+            URL.revokeObjectURL(objectUrlToRevoke);
           }
         }
       }
@@ -2237,7 +2523,7 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
                               <input 
                                 type="checkbox" 
                                 checked={applyToAll}
-                                onChange={(e) => setApplyToAll(e.target.checked)}
+                                onChange={(e) => handleApplyToAllChange(e.target.checked)}
                                 className="rounded-md border border-neoink/20 bg-white text-neoaccent focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer accent-neoaccent"
                               />
                               <span className="text-[10px] font-mono uppercase tracking-wider text-neoink/40 group-hover:text-neoink/70 transition-colors font-bold">Apply To All</span>
@@ -2515,7 +2801,7 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
           )
         )}
       </div>
- 
+
       {/* Fullscreen Interactive Cinematic Inspector Modal */}
       <AnimatePresence>
         {fullscreenPreviewItem && (
@@ -2531,7 +2817,7 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border border-neoink/10 shadow-2xl max-w-5xl w-full h-[85vh] rounded-2xl overflow-hidden flex flex-col md:flex-row relative"
+              className="bg-white border border-neoink/10 shadow-2xl max-w-6xl w-full h-[88vh] rounded-2xl overflow-hidden flex flex-col md:flex-row relative"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Close Button */}
@@ -2541,9 +2827,9 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
               >
                 <X className="w-5 h-5 stroke-[2.5]" />
               </button>
- 
-              {/* Media Presentation Stage */}
-              <div className="flex-1 bg-[#FAF9F5] relative p-6 h-1/2 md:h-full flex items-center justify-center min-h-0 border-r border-neoink/10">
+  
+              {/* Media Presentation Stage (Live Effects Preview Canvas) */}
+              <div className="flex-1 bg-[#FAF9F5] relative p-6 h-[40vh] md:h-full flex items-center justify-center min-h-0 border-r border-neoink/10">
                 <div className="w-full h-full flex items-center justify-center min-h-0 min-w-0">
                   {fullscreenPreviewItem.isVideo ? (
                     <video
@@ -2554,102 +2840,244 @@ ${Object.entries(effectCounts).map(([eff, count]) => `- **${eff}**: ${count} fil
                       className="max-w-full max-h-full object-contain rounded-xl border border-neoink/10 shadow-lg bg-black"
                     />
                   ) : (
-                    <img
-                      src={fullscreenPreviewItem.src}
-                      alt={fullscreenPreviewItem.name || fullscreenPreviewItem.alt}
-                      className="max-w-full max-h-full object-contain select-none rounded-xl border border-neoink/10 shadow-lg bg-white"
-                      referrerPolicy="no-referrer"
-                    />
+                    <div className="relative flex items-center justify-center max-w-full max-h-full">
+                      <canvas
+                        ref={previewCanvasRef}
+                        className="max-w-full max-h-full object-contain select-none rounded-xl border border-neoink/10 shadow-lg bg-white"
+                      />
+                    </div>
                   )}
                 </div>
-                <div className="absolute bottom-4 left-4 bg-white px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-neoink/60 border border-neoink/10 shadow-sm z-10 font-bold rounded-lg">
-                  High-Resolution Source Asset
+                <div className="absolute bottom-4 left-4 bg-white px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-neoink/60 border border-neoink/10 shadow-sm z-10 font-bold rounded-lg flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-neoaccent animate-pulse" />
+                  <span>Un-Posted Image Preview: Effects Active</span>
                 </div>
               </div>
-
-              {/* Metadata Sidebar Inspector */}
-              <div className="w-full md:w-80 bg-white border-t md:border-t-0 md:border-l border-neoink/10 p-6 flex flex-col justify-between h-1/2 md:h-full overflow-y-auto">
-                <div className="space-y-6 text-left">
+ 
+              {/* Interactive Inspector Sidebar & Effects Tuning Station */}
+              <div className="w-full md:w-96 bg-white border-t md:border-t-0 md:border-l border-neoink/10 p-6 flex flex-col justify-between h-[48vh] md:h-full overflow-y-auto">
+                <div className="space-y-5 text-left">
+                  {/* Category, Title, ID */}
                   <div>
                     <span className="px-2.5 py-1 bg-[#F8F7F4] text-neoink border border-neoink/10 font-mono text-[9px] font-extrabold uppercase tracking-widest rounded-md">
-                      {fullscreenPreviewItem.category || (fullscreenPreviewItem.isVideo ? 'Video' : 'Scraped')}
+                      {fullscreenPreviewItem.category || (fullscreenPreviewItem.isVideo ? 'Video' : 'Un-posted Scraped Asset')}
                     </span>
-                    <h3 className="text-2xl text-neoink font-bold tracking-tight mt-3 leading-snug font-sans">
+                    <h3 className="text-xl text-neoink font-bold tracking-tight mt-3 leading-snug font-sans">
                       {fullscreenPreviewItem.name || fullscreenPreviewItem.alt || 'Dataset Media Asset'}
                     </h3>
-                    <p className="text-xs text-neoink/60 mt-1 font-mono font-bold">
+                    <p className="text-[10px] text-neoink/60 mt-1 font-mono font-bold">
                       ID: {fullscreenPreviewItem.id}
                     </p>
                   </div>
-  
-                  {fullscreenPreviewItem.description && (
-                    <div className="space-y-1.5">
-                      <h4 className="text-[10px] font-mono uppercase tracking-widest text-neoink/60 font-bold">Description</h4>
-                      <p className="text-xs text-neoink/75 leading-relaxed font-sans font-medium">
-                        {fullscreenPreviewItem.description}
-                      </p>
+ 
+                  {/* Tabs for Config / Info */}
+                  <div className="space-y-4 pt-4 border-t border-neoink/10">
+                    <h4 className="text-[10px] font-mono uppercase tracking-widest text-neoink/60 font-bold flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-neoaccent" />
+                      <span>Live Filter & Effects Tuning</span>
+                    </h4>
+ 
+                    {/* Rotation & Zoom Scale (Un-posted Stage) */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase text-neoink/50 font-bold">Rotation</label>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setPreviewRotation(prev => (prev - 90 + 360) % 360)}
+                            className="flex-1 py-1 px-2 bg-[#F8F7F4] border border-neoink/10 hover:bg-neoink hover:text-white transition-all font-mono font-bold text-xs rounded-lg cursor-pointer"
+                            title="Rotate Left"
+                          >
+                            -90°
+                          </button>
+                          <button
+                            onClick={() => setPreviewRotation(prev => (prev + 90) % 360)}
+                            className="flex-1 py-1 px-2 bg-[#F8F7F4] border border-neoink/10 hover:bg-neoink hover:text-white transition-all font-mono font-bold text-xs rounded-lg cursor-pointer"
+                            title="Rotate Right"
+                          >
+                            +90°
+                          </button>
+                        </div>
+                      </div>
+ 
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase text-neoink/50 font-bold">Scale ({previewScale.toFixed(1)}x)</label>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setPreviewScale(prev => Math.max(0.5, prev - 0.2))}
+                            className="flex-1 py-1 px-2 bg-[#F8F7F4] border border-neoink/10 hover:bg-[#1D1D1B] hover:text-white transition-all font-mono font-bold text-xs rounded-lg cursor-pointer"
+                            title="Zoom Out"
+                          >
+                            <Minus className="w-3 h-3 mx-auto stroke-[3]" />
+                          </button>
+                          <button
+                            onClick={() => setPreviewScale(prev => Math.min(3.0, prev + 0.2))}
+                            className="flex-1 py-1 px-2 bg-[#F8F7F4] border border-neoink/10 hover:bg-[#1D1D1B] hover:text-white transition-all font-mono font-bold text-xs rounded-lg cursor-pointer"
+                            title="Zoom In"
+                          >
+                            <Plus className="w-3 h-3 mx-auto stroke-[3]" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  )}
-  
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-mono uppercase tracking-widest text-neoink/60 font-bold">Asset Parameters</h4>
-                    <div className="grid grid-cols-2 gap-2 text-left font-mono font-bold">
-                      <div className="p-2.5 bg-white border border-neoink/10 shadow-sm rounded-lg">
-                        <p className="text-[9px] text-neoink/40 uppercase">Resolution</p>
-                        <p className="text-xs font-extrabold text-neoink mt-0.5">{fullscreenPreviewItem.resolutionLabel || 'High-Res'}</p>
-                      </div>
-                      <div className="p-2.5 bg-white border border-neoink/10 shadow-sm rounded-lg">
-                        <p className="text-[9px] text-neoink/40 uppercase">Dimensions</p>
-                        <p className="text-xs font-extrabold text-neoink mt-0.5">{fullscreenPreviewItem.targetSize ? `${fullscreenPreviewItem.targetSize}px` : 'Dynamic'}</p>
-                      </div>
-                      <div className="p-2.5 bg-white border border-neoink/10 shadow-sm rounded-lg col-span-2">
-                        <p className="text-[9px] text-neoink/40 uppercase">Est. Size</p>
-                        <p className="text-xs font-extrabold text-neoink mt-0.5">{fullscreenPreviewItem.sizeLabel || '3.5 MB'}</p>
+ 
+                    {/* Photo Filter Presets */}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-mono uppercase text-neoink/50 font-bold block">Color Preset</label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {['None', 'Grayscale', 'Sepia', 'Warm', 'Cool', 'Vintage', 'Invert', 'Sunset'].map(filt => (
+                          <button
+                            key={filt}
+                            onClick={() => setPreviewFilter(filt)}
+                            className={`py-1 text-center rounded-md text-[8px] font-mono uppercase tracking-wider transition-all border ${
+                              previewFilter === filt
+                                ? 'bg-neoaccent text-white border-transparent shadow-sm font-bold'
+                                : 'bg-[#F8F7F4] text-neoink/75 border-neoink/5 hover:bg-white shadow-sm'
+                            }`}
+                          >
+                            {filt}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  </div>
-  
-                  <div className="space-y-1.5 text-xs text-neoink/60 font-sans leading-normal bg-[#FAF9F5] border border-neoink/10 p-3.5 rounded-xl">
-                    <p className="font-bold text-neoink text-[10px] uppercase font-mono mb-1">Safety & Licensing</p>
-                    {fullscreenPreviewItem.hasWatermarks ? (
-                      <span className="text-[#E63946] font-mono text-[9px] font-bold uppercase tracking-wider block">⚠️ Potential Watermark Detected</span>
-                    ) : (
-                      <span className="text-emerald-600 font-mono text-[9px] font-bold uppercase tracking-wider block">✓ Verified Clean Asset</span>
+ 
+                    {/* Visual Effects Selector */}
+                    {!fullscreenPreviewItem.isVideo && (
+                      <div className="space-y-2.5">
+                        <label className="text-[9px] font-mono uppercase text-neoink/50 font-bold block">Shader Effect</label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { id: 'None', label: 'Standard', icon: ImageIcon },
+                            { id: 'Pixelate', label: 'Pixelate', icon: Cpu },
+                            { id: 'EmojiMosaic', label: 'Emoji Mosaic', icon: Smile },
+                            { id: 'EdgeDetection', label: 'Edge Lines', icon: Crosshair },
+                          ].map(eff => {
+                            const IconComponent = eff.icon;
+                            const isActive = previewEffect === eff.id;
+                            return (
+                              <button
+                                key={eff.id}
+                                onClick={() => setPreviewEffect(eff.id)}
+                                className={`py-2 px-2.5 rounded-lg text-left text-[9px] font-bold uppercase tracking-wider transition-all border flex items-center gap-1.5 cursor-pointer ${
+                                  isActive
+                                    ? 'bg-neoaccent text-white border-transparent shadow-sm'
+                                    : 'bg-[#F8F7F4] text-neoink/75 border-neoink/5 hover:bg-white'
+                                }`}
+                              >
+                                <IconComponent className="w-3.5 h-3.5" />
+                                <span>{eff.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+ 
+                        {/* Contextual effect sliders */}
+                        {previewEffect === 'Pixelate' && (
+                          <div className="p-3 bg-[#F8F7F4] border border-neoink/5 rounded-xl space-y-1.5 animate-fade-in text-left">
+                            <div className="flex justify-between text-[8px] font-mono uppercase tracking-widest text-neoink/70 font-bold">
+                              <span>Pixel block size</span>
+                              <span className="text-neoaccent">{previewPixelSize}px</span>
+                            </div>
+                            <input 
+                              type="range" 
+                              min="4" 
+                              max="64" 
+                              step="4"
+                              value={previewPixelSize}
+                              onChange={(e) => setPreviewPixelSize(parseInt(e.target.value))}
+                              className="w-full h-1 bg-neoink/15 rounded-lg appearance-none cursor-pointer accent-neoaccent"
+                            />
+                          </div>
+                        )}
+ 
+                        {previewEffect === 'EmojiMosaic' && (
+                          <div className="p-3 bg-[#F8F7F4] border border-neoink/5 rounded-xl space-y-1.5 animate-fade-in text-left">
+                            <div className="flex justify-between text-[8px] font-mono uppercase tracking-widest text-neoink/70 font-bold">
+                              <span>Emoji Density size</span>
+                              <span className="text-neoaccent">{previewEmojiDensity}px</span>
+                            </div>
+                            <input 
+                              type="range" 
+                              min="8" 
+                              max="24" 
+                              step="2"
+                              value={previewEmojiDensity}
+                              onChange={(e) => setPreviewEmojiDensity(parseInt(e.target.value))}
+                              className="w-full h-1 bg-neoink/15 rounded-lg appearance-none cursor-pointer accent-neoaccent"
+                            />
+                          </div>
+                        )}
+                      </div>
                     )}
+                  </div>
+ 
+                  {/* Original Asset Parameters */}
+                  <div className="space-y-2 pt-4 border-t border-neoink/10">
+                    <h4 className="text-[10px] font-mono uppercase tracking-widest text-neoink/60 font-bold">Original Metadata</h4>
+                    <div className="grid grid-cols-2 gap-1.5 text-left font-mono font-bold text-[9px]">
+                      <div className="p-2 bg-white border border-neoink/5 rounded-lg shadow-sm">
+                        <p className="text-neoink/40 uppercase">Target Res</p>
+                        <p className="text-neoink mt-0.5">{fullscreenPreviewItem.resolutionLabel || '1024px'}</p>
+                      </div>
+                      <div className="p-2 bg-white border border-neoink/5 rounded-lg shadow-sm">
+                        <p className="text-neoink/40 uppercase">Est. Size</p>
+                        <p className="text-neoink mt-0.5">{fullscreenPreviewItem.sizeLabel || '1.8 MB'}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
   
-                <div className="pt-6 border-t border-neoink/10 flex flex-col gap-2">
+                {/* Action Ingest Triggers */}
+                <div className="pt-4 border-t border-neoink/10 flex flex-col gap-2 shrink-0">
                   <button
                     onClick={() => {
                       const isVideo = !!fullscreenPreviewItem.isVideo;
-                      const suffix = isVideo ? '.mp4' : '.jpg';
+                      const suffix = isVideo ? '.mp4' : '.png';
+                      
+                      // Carry-over all pre-applied effects and filters into the workspace ImageState!
                       const imgState: ImageState = {
                         id: Math.random().toString(36).substring(2, 9),
                         src: fullscreenPreviewItem.src,
                         name: (fullscreenPreviewItem.alt || fullscreenPreviewItem.name || 'scraped_asset').toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20) + suffix,
-                        rotation: 0,
-                        scale: 1,
+                        rotation: previewRotation,
+                        scale: previewScale,
                         targetSize: fullscreenPreviewItem.targetSize || 1024,
-                        filter: 'None',
-                        effect: 'None',
-                        pixelSize: 16,
-                        emojiDensity: 12,
+                        filter: previewFilter,
+                        effect: previewEffect,
+                        pixelSize: previewPixelSize,
+                        emojiDensity: previewEmojiDensity,
                         isVideo,
                       };
-                      setImages(prev => [...prev, imgState]);
+                      
+                      if (applyToAll) {
+                        setImages(prev => prev.map(img => ({
+                          ...img,
+                          rotation: previewRotation,
+                          scale: previewScale,
+                          targetSize: fullscreenPreviewItem.targetSize || 1024,
+                          filter: previewFilter,
+                          effect: previewEffect,
+                          pixelSize: previewPixelSize,
+                          emojiDensity: previewEmojiDensity,
+                        })).concat(imgState));
+                      } else {
+                        setImages(prev => [...prev, imgState]);
+                      }
                       setActiveId(imgState.id);
                       setFullscreenPreviewItem(null);
                       setActiveTab('workspace');
+                      
+                      // Notify beautiful success
+                      setDeduplicateStatus("Asset imported with pre-applied effects!");
+                      setTimeout(() => setDeduplicateStatus(null), 3000);
                     }}
-                    className="w-full py-3 bg-neoaccent text-white hover:bg-neoaccent/90 transition-all rounded-lg text-xs font-mono font-bold uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2 shadow-md"
+                    className="w-full py-3 bg-neoaccent hover:bg-[#E63946]/95 text-white transition-all rounded-lg text-xs font-mono font-bold uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2 shadow-md hover:scale-[1.01]"
                   >
                     <Plus className="w-4 h-4 stroke-[3]" />
-                    <span>Import to Workspace</span>
+                    <span>Import with Effects</span>
                   </button>
                   <button
                     onClick={() => setFullscreenPreviewItem(null)}
-                    className="w-full py-2.5 bg-transparent hover:bg-neoink/5 text-neoink/60 text-[10px] font-mono font-bold uppercase tracking-widest transition-all border border-transparent hover:border-neoink/20 rounded-lg cursor-pointer"
+                    className="w-full py-2 bg-transparent hover:bg-neoink/5 text-neoink/60 text-[10px] font-mono font-bold uppercase tracking-widest transition-all border border-transparent hover:border-neoink/20 rounded-lg cursor-pointer"
                   >
                     Back to Catalog
                   </button>
